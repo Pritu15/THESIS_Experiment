@@ -282,6 +282,16 @@ def train_b3(args):
     print(f"Node scores: {score_path}")
     print(f"Gate values: {gate_path}")
 
+    return {
+        "model": "B3",
+        "dataset": args.dataset,
+        "seed": args.seed,
+        "AUROC": best_test_metrics["auroc"],
+        "AUPRC": best_test_metrics["auprc"],
+        "F1": best_test_metrics["macro_f1"],
+        "training_time": elapsed,
+    }
+
 
 def parse_args():
     parser = argparse.ArgumentParser(

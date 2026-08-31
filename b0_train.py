@@ -229,6 +229,16 @@ def train_b0(args):
     print(f"Test RecK:      {best_test_metrics['reck']*100:.2f}%")
     print(f"Node scores: {score_path}")
 
+    return {
+        "model": "B0",
+        "dataset": args.dataset,
+        "seed": args.seed,
+        "AUROC": best_test_metrics["auroc"],
+        "AUPRC": best_test_metrics["auprc"],
+        "F1": best_test_metrics["macro_f1"],
+        "training_time": elapsed,
+    }
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
