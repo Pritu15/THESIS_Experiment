@@ -2,12 +2,14 @@
 
 import argparse
 import time
+import warnings
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
+from sklearn.exceptions import UndefinedMetricWarning
 
 from b0_model import B0GraphSAGE
 from E_train import compute_comprehensive_metrics, get_best_f1
@@ -15,6 +17,11 @@ from get_amazon import amazon_data
 from get_tfinance import tfinance_data
 from get_tsocial import tsocial_data
 from get_yelp import yelp_data
+
+
+# A model can legitimately predict no anomalous nodes during an ablation run.
+# sklearn assigns precision=0.0 in that case; suppress only the repeated warning.
+warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
 
 
 def load_static_dataset(args):
