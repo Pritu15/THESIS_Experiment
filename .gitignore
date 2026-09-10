@@ -6,6 +6,7 @@ dist/
 build/
 *.egg
 
+
 # Virtual environments
 venv/
 env/
@@ -39,3 +40,4 @@ checkpoints/
 
 # Jupyter
 .ipynb_checkpoints/
+thesis_progress_slides.tex
