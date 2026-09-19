@@ -30,6 +30,7 @@ from b5_model import B5EdgeBidirectionalEnergySAGE
 from E_train import compute_comprehensive_metrics, get_best_f1
 from edge_energy import compute_edge_energy
 from edge_labels import (
+    EdgeSplit,
     STRATUM_NAMES,
     assign_edge_splits,
     build_supervised_edge_index,
@@ -99,16 +100,6 @@ def train_b5(args):
     num_supervised_edges = edge_pairs.shape[1]
     print(f"Unique undirected supervised edges: {num_supervised_edges:,}")
 
-    if args.energy_mode == "d3" and args.d3_edge_limit >= 0 and num_supervised_edges > args.d3_edge_limit:
-        raise RuntimeError(
-            f"D3 requested on {num_supervised_edges:,} edges, exceeding "
-            f"--d3_edge_limit={args.d3_edge_limit:,}. D3 loops in Python over "
-            "every supervised edge calling dgl.khop_in_subgraph, and has not "
-            "been benchmarked at this scale. Raise --d3_edge_limit explicitly "
-            "(or pass -1 to disable this guard) once you have confirmed the "
-            "runtime is acceptable, or test on a smaller dataset/subset first."
-        )
-
     soft_label, hard_label = derive_edge_labels(labels, edge_pairs)
     stratum = endpoint_stratum(labels, edge_pairs)
     splits = assign_edge_splits(edge_pairs, train_mask, val_mask, test_mask)
@@ -121,6 +112,40 @@ def train_b5(args):
         f"Edge splits: train={n_train:,} val={n_val:,} test={n_test:,} "
         f"excluded={n_excluded:,}"
     )
+
+    # Drop mixed-split-membership edges up front. They are never read in the
+    # loss, evaluation, or leakage diagnostic below, but were still being
+    # pushed through every forward pass (energy computation, gate,
+    # projections, edge_head) for all `num_supervised_edges`, not just the
+    # train+val+test subset actually used - on Amazon this exclusion rate is
+    # ~73%, and computing the full set every epoch is what exhausts a 14.56
+    # GiB T4 at the edge_head's hidden-layer activation. Filtering here cuts
+    # every downstream tensor (energy, gate, projections, concat, edge_head,
+    # and D3's per-edge Python loop) by the same fraction, with no change to
+    # which edges are used for train/val/test.
+    keep = ~splits.excluded
+    edge_pairs = edge_pairs[:, keep]
+    soft_label = soft_label[keep]
+    hard_label = hard_label[keep]
+    stratum = stratum[keep]
+    splits = EdgeSplit(
+        train=splits.train[keep],
+        val=splits.val[keep],
+        test=splits.test[keep],
+        excluded=torch.zeros(edge_pairs.shape[1], dtype=torch.bool, device=edge_pairs.device),
+    )
+    print(f"Edges kept for training/eval (train+val+test only): {edge_pairs.shape[1]:,}")
+
+    if args.energy_mode == "d3" and args.d3_edge_limit >= 0 and edge_pairs.shape[1] > args.d3_edge_limit:
+        raise RuntimeError(
+            f"D3 requested on {edge_pairs.shape[1]:,} kept edges (train+val+test, "
+            "after dropping mixed-split-membership edges), exceeding "
+            f"--d3_edge_limit={args.d3_edge_limit:,}. D3 loops in Python over "
+            "every kept edge calling dgl.khop_in_subgraph, and has not "
+            "been benchmarked at this scale. Raise --d3_edge_limit explicitly "
+            "(or pass -1 to disable this guard) once you have confirmed the "
+            "runtime is acceptable, or test on a smaller dataset/subset first."
+        )
 
     anomaly_count = int(hard_label[splits.train].sum())
     if anomaly_count == 0:
