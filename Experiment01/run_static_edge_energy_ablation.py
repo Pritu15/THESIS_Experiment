@@ -85,11 +85,26 @@ def print_results_table(frame):
 
 
 def run_ablation(args):
-    """Execute every requested (seed, energy_mode, fusion) combination, sequentially."""
+    """Execute every requested (seed, energy_mode, fusion) combination, sequentially.
+
+    Resumable: a (seed, energy_mode, fusion) combo already present in the
+    output CSV is skipped rather than rerun, so an interrupted Kaggle
+    session (browser closed, kernel killed) loses no completed work when
+    the exact same command is run again.
+    """
     output_dir = Path(args.output_dir)
     csv_path = output_dir / f"static_edge_energy_ablation_{args.dataset}.csv"
     json_path = output_dir / f"static_edge_energy_ablation_{args.dataset}.json"
+
     records = []
+    done = set()
+    if csv_path.exists():
+        existing = pd.read_csv(csv_path)
+        records = existing.to_dict(orient="records")
+        done = {
+            (int(row["seed"]), row["energy_mode"], row["fusion"]) for row in records
+        }
+        print(f"Resuming: found {len(done)} completed run(s) already in {csv_path}")
 
     combos = [(mode, fusion) for mode in args.energy_modes for fusion in args.fusions]
     total_runs = len(args.seeds) * len(combos)
@@ -107,6 +122,13 @@ def run_ablation(args):
     for seed in args.seeds:
         for energy_mode, fusion in combos:
             run_number += 1
+            if (seed, energy_mode, fusion) in done:
+                print(
+                    f"\nSKIP {run_number}/{total_runs}: model=B5 seed={seed} "
+                    f"energy_mode={energy_mode} fusion={fusion} (already completed)"
+                )
+                continue
+
             print("\n" + "#" * 70)
             print(
                 f"RUN {run_number}/{total_runs}: model=B5 seed={seed} "
