@@ -106,8 +106,15 @@ def build_symmetric_query_graph(graph: "dgl.DGLGraph") -> "dgl.DGLGraph":
     `to_bidirected` (which requires a simple graph as input) - relevant
     because Amazon/Yelp are homogenized from multi-relation graphs and can
     contain duplicate (u, v) pairs (see the Phase 8A audit).
+
+    `graph` may be on GPU (b5_train.py moves the encoder's graph to
+    `device` before this is ever called), but `dgl.to_simple` only
+    supports CPU graphs. Moved to CPU here rather than by the caller,
+    since this function already documents itself as building a separate,
+    throwaway copy independent of whatever form the encoder consumes.
     """
-    g = dgl.remove_self_loop(graph)
+    g = graph.to("cpu")
+    g = dgl.remove_self_loop(g)
     g = dgl.to_simple(g)
     g = dgl.to_bidirected(g)
     return g
@@ -160,8 +167,11 @@ def edge_energy_d3(
 
         # Deduplicate to unique undirected pairs so each induced edge is
         # counted exactly once in the numerator (sg is bidirected, so
-        # sg.edges() alone would double-count every edge).
-        sub_edge_pairs = build_supervised_edge_index(sg)
+        # sg.edges() alone would double-count every edge). sg is CPU (it
+        # comes from the now-CPU symmetric_query_graph), so this returns
+        # CPU indices - moved to `device` before indexing x_sub/inv_*_deg,
+        # which live on `device` alongside the rest of the model's tensors.
+        sub_edge_pairs = build_supervised_edge_index(sg).to(device)
         if sub_edge_pairs.shape[1] == 0:
             # (u, v) itself is always an edge of the induced subgraph, so
             # this should not happen; guarded rather than left as 0/0.
